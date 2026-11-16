@@ -24,17 +24,24 @@ export function AppHeader({ sort, onSort, onAdd }: Props) {
 
   return (
     <header className="site-header">
-      <h1>タスク管理</h1>
-      <div className="header-actions">
+      <div className="header-inner">
+        <div className="header-main">
+          <h1 className="wordmark">TASKBASTER</h1>
+          <button className="add-button" type="button" aria-label="タスク追加" onClick={onAdd}>
+            <span className="add-cross" aria-hidden="true" />
+          </button>
+        </div>
+
         <div className="sort-control">
-          <button type="button" aria-expanded={open} aria-controls="sort-menu" onClick={() => setOpen(!open)}>ソート</button>
+          <button className="sort-button" type="button" aria-expanded={open} aria-controls="sort-menu" onClick={() => setOpen(!open)}>
+            Sort
+          </button>
           {open && <div id="sort-menu" className="sort-menu" role="group" aria-label="並び順">
             {options.map(([key, label]) => (
               <button key={key} type="button" aria-pressed={sort === key} onClick={() => choose(key)}>{label}</button>
             ))}
           </div>}
         </div>
-        <button type="button" onClick={onAdd}>＋ タスク追加</button>
       </div>
     </header>
   )

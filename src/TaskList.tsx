@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { Task } from './types'
 import type { TaskFilter } from './taskLogic'
 import { warningLevel } from './taskLogic'
@@ -12,16 +13,30 @@ type Props = {
 }
 
 function dateText(date: Date | null) {
-  if (!date) return 'なし'
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+  if (!date) return '—'
+  return `${date.getMonth() + 1}/${date.getDate()}`
+}
+
+function timeText(minutes: number | null) {
+  if (minutes === null) return '—'
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return `${h}h${String(m).padStart(2, '0')}m`
 }
 
 function TaskCard({ task: t, onUpdate, onEdit, onDelete }: Pick<Props, 'onUpdate' | 'onEdit' | 'onDelete'> & { task: Task }) {
   const level = warningLevel(t)
-  const signal = { none: '', blue: '青', yellow: '黄', red: '赤' }[level]
+  const chars = Array.from(t.title)
+  const count = chars.filter(ch => ch !== '\n').length
+  let pos = 0
+
+  const title = chars.map((ch, i) => {
+    if (ch === '\n') return <br key={i} />
+
+    const ink = Math.max(0, Math.min(100, ((1 - t.progress / 100) * count - pos++) * 100))
+    const style = { '--ink': `${ink}%` } as CSSProperties
+    return <span className="task-glyph" style={style} key={i}>{ch === ' ' ? '\u00a0' : ch}</span>
+  })
 
   function setProgress(progress: number) {
     onUpdate(t.id, { progress, completed: progress === 100 })
@@ -32,37 +47,43 @@ function TaskCard({ task: t, onUpdate, onEdit, onDelete }: Pick<Props, 'onUpdate
   }
 
   return (
-    <li>
-      <div className="task-heading">
-        <h3>{t.title}</h3>
-        <button type="button" aria-label={t.starred ? 'スターを外す' : 'スターを付ける'} aria-pressed={t.starred} onClick={() => onUpdate(t.id, { starred: !t.starred })}>
-          {t.starred ? '★' : '☆'}
-        </button>
+    <li className={`task-row signal-${level}`}>
+      <div className="task-primary">
+        <h3 className="task-title">{title}</h3>
+        <label className="task-progress">
+          <span className="sr-only">{t.title}の進捗</span>
+          <input type="range" min="0" max="100" value={t.progress} onChange={e => setProgress(Number(e.target.value))} />
+          <span>{t.progress}%</span>
+        </label>
       </div>
 
-      {t.description && <p>{t.description}</p>}
-      <p>期限: {dateText(t.deadline)} / 所要時間: {t.estimatedMinutes === null ? '未設定' : `${t.estimatedMinutes}分`}</p>
-      {signal && <p className={`warning warning-${level}`}>警告: {signal}</p>}
+      <div className="task-details">
+        <div className="task-meta">
+          <p>DEADLINE: {dateText(t.deadline)}</p>
+          <p>Required Time: {timeText(t.estimatedMinutes)}</p>
+        </div>
 
-      <label>進捗: {t.progress}%
-        <input type="range" min="0" max="100" value={t.progress} onChange={e => setProgress(Number(e.target.value))} />
-      </label>
-
-      <div className="actions">
-        <button type="button" onClick={toggleDone}>{t.completed ? '未完了に戻す' : '完了'}</button>
-        <button type="button" onClick={() => onEdit(t)}>編集</button>
-        <button type="button" onClick={() => onDelete(t.id)}>削除</button>
+        <div className="task-actions">
+          <button type="button" className="star-button" aria-label={t.starred ? 'スターを外す' : 'スターを付ける'} aria-pressed={t.starred} onClick={() => onUpdate(t.id, { starred: !t.starred })}>
+            {t.starred ? '★' : '☆'}
+          </button>
+          <button type="button" onClick={toggleDone}>{t.completed ? '未完了に戻す' : '完了'}</button>
+          <button type="button" onClick={() => onEdit(t)}>編集</button>
+          <button type="button" onClick={() => onDelete(t.id)}>削除</button>
+        </div>
       </div>
+
+      {t.description && <p className="task-description">{t.description}</p>}
     </li>
   )
 }
 
 export function TaskList({ tasks, filter, onFilter, onUpdate, onEdit, onDelete }: Props) {
   return (
-    <section aria-label="タスク一覧">
-      <div className="toolbar">
-        <h2>タスク一覧</h2>
-        <label>表示
+    <section className="task-list" aria-label="タスク一覧">
+      <div className="list-controls">
+        <label>
+          <span className="sr-only">表示</span>
           <select value={filter} onChange={e => onFilter(e.target.value as TaskFilter)}>
             <option value="active">未完了</option>
             <option value="completed">完了済み</option>
@@ -72,7 +93,7 @@ export function TaskList({ tasks, filter, onFilter, onUpdate, onEdit, onDelete }
         </label>
       </div>
 
-      {tasks.length === 0 && <p>タスクはありません。</p>}
+      {tasks.length === 0 && <p className="empty-state">タスクはありません。</p>}
       {tasks.length > 0 && <ul>
         {tasks.map(t => <TaskCard key={t.id} task={t} onUpdate={onUpdate} onEdit={onEdit} onDelete={onDelete} />)}
       </ul>}
