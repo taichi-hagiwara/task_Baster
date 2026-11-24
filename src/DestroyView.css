@@ -1,0 +1,40 @@
+.destroy-view {
+  position: fixed;
+  inset: 0;
+  background: #11141b;
+  color: #fff;
+}
+.destroy-view canvas {
+  display: block;
+}
+.destroy-header {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 28px;
+  font:
+    italic 800 18px Arial,
+    sans-serif;
+  pointer-events: none;
+}
+.destroy-header a {
+  color: #fff;
+  font:
+    normal 15px Arial,
+    sans-serif;
+  pointer-events: auto;
+}
+.destroy-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max-content;
+  max-width: 90vw;
+  transform: translate(-50%, -50%);
+}
