@@ -8,7 +8,6 @@ type Props = {
   onUpdate: (id: number, changes: Partial<Task>) => void;
   onEdit: (task: Task) => void;
   onDelete: (id: number) => void;
-  onOpen3D: (task: Task) => void;
 };
 
 function TaskTitle({ task }: { task: Task }) {
@@ -34,13 +33,7 @@ function TaskTitle({ task }: { task: Task }) {
   return <h3 className="task-title">{glyphs}</h3>;
 }
 
-export function TaskCard({
-  task: t,
-  onUpdate,
-  onEdit,
-  onDelete,
-  onOpen3D,
-}: Props) {
+export function TaskCard({ task: t, onUpdate, onEdit, onDelete }: Props) {
   const level = warningLevel(t);
 
   function setProgress(progress: number) {
@@ -93,11 +86,6 @@ export function TaskCard({
           <button type="button" onClick={() => onEdit(t)}>
             編集
           </button>
-          {t.completed && (
-            <button type="button" onClick={() => onOpen3D(t)}>
-              3Dで見る
-            </button>
-          )}
           <button type="button" onClick={() => onDelete(t.id)}>
             削除
           </button>

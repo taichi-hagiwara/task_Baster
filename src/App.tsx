@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Task } from "./types";
 import { loadTasks, saveTasks } from "./taskStorage";
 import { visibleTasks } from "./taskLogic";
-import type { SortKey, TaskFilter } from "./taskLogic";
+import type { SortKey, TaskTab, TaskView } from "./taskLogic";
 import { AppHeader } from "./AppHeader";
 import { TaskList } from "./TaskList";
 import { TaskSheet } from "./TaskSheet";
@@ -12,7 +12,8 @@ import "./App.css";
 function App() {
   const [tasks, setTasks] = useState<Task[]>(loadTasks);
   const [sort, setSort] = useState<SortKey>("deadline");
-  const [filter, setFilter] = useState<TaskFilter>("active");
+  const [view, setView] = useState<TaskView>("active");
+  const [tab, setTab] = useState<TaskTab>("all");
   const [sheet, setSheet] = useState(false);
   const [edit, setEdit] = useState<Task | null>(null);
 
@@ -51,33 +52,51 @@ function App() {
     if (edit?.id === id) close();
   }
 
-  function open3D(t: Task) {
+  function open3D() {
     saveTasks(tasks);
     const url = new URL(import.meta.env.BASE_URL, window.location.origin);
     url.searchParams.set("mode", "destroy");
-    url.searchParams.set("task", String(t.id));
     window.open(url, "_blank");
   }
 
   return (
     <>
-      <AppHeader sort={sort} onSort={setSort} onAdd={add} />
+      <AppHeader sort={sort} onSort={setSort} view={view} onView={setView} />
 
       <main>
         {sheet && <TaskSheet task={edit} onSave={save} onClose={close} />}
         <TaskList
-          tasks={visibleTasks(tasks, filter, sort)}
-          filter={filter}
-          onFilter={setFilter}
+          tasks={visibleTasks(tasks, view, tab, sort)}
+          view={view}
+          tab={tab}
+          onTab={setTab}
           onUpdate={update}
           onEdit={(t) => {
             setEdit(t);
             setSheet(true);
           }}
           onDelete={remove}
-          onOpen3D={open3D}
         />
       </main>
+      {view === "completed" ? (
+        <button
+          className="floating-add baster-button"
+          type="button"
+          aria-label="完了済みタスクを3Dで開く"
+          onClick={open3D}
+        >
+          BASTER
+        </button>
+      ) : !sheet ? (
+        <button
+          className="floating-add"
+          type="button"
+          aria-label="タスクを追加"
+          onClick={add}
+        >
+          <span aria-hidden="true">+</span>
+        </button>
+      ) : null}
     </>
   );
 }

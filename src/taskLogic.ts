@@ -1,15 +1,9 @@
 import type { Task } from "./types";
 
 export type SortKey = "deadline" | "progress" | "duration" | "title";
-export type TaskFilter = "active" | "completed" | "all" | "starred";
+export type TaskView = "active" | "completed";
+export type TaskTab = "all" | "starred";
 export type WarningLevel = "none" | "blue" | "yellow" | "red";
-
-function includes(task: Task, filter: TaskFilter): boolean {
-  if (filter === "active") return !task.completed;
-  if (filter === "completed") return task.completed;
-  if (filter === "starred") return task.starred;
-  return true;
-}
 
 function compare(a: Task, b: Task, sort: SortKey): number {
   if (sort === "title")
@@ -28,11 +22,13 @@ function compare(a: Task, b: Task, sort: SortKey): number {
 
 export function visibleTasks(
   tasks: Task[],
-  filter: TaskFilter,
+  view: TaskView,
+  tab: TaskTab,
   sort: SortKey,
 ): Task[] {
   return tasks
-    .filter((t) => includes(t, filter))
+    .filter((t) => t.completed === (view === "completed"))
+    .filter((t) => tab === "all" || t.starred)
     .sort((a, b) => compare(a, b, sort));
 }
 

@@ -6,14 +6,15 @@ const View = lazy(() =>
 );
 
 export function DestroyRoute() {
-  const id = Number(new URLSearchParams(window.location.search).get("task"));
-  const task = Number.isSafeInteger(id)
-    ? (loadTasks().find((t) => t.id === id && t.completed) ?? null)
-    : null;
+  const idParam = new URLSearchParams(window.location.search).get("task");
+  const id = idParam === null ? null : Number(idParam);
+  const tasks = loadTasks().filter(
+    (task) => task.completed && (id === null || task.id === id),
+  );
 
   return (
     <Suspense fallback={null}>
-      <View task={task} />
+      <View tasks={tasks} />
     </Suspense>
   );
 }

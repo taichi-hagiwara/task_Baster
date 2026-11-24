@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { SortKey } from "./taskLogic";
+import type { SortKey, TaskView } from "./taskLogic";
 
 type Props = {
   sort: SortKey;
   onSort: (sort: SortKey) => void;
-  onAdd: () => void;
+  view: TaskView;
+  onView: (view: TaskView) => void;
 };
 
 const options: [SortKey, string][] = [
@@ -14,7 +15,7 @@ const options: [SortKey, string][] = [
   ["title", "あいうえお順"],
 ];
 
-export function AppHeader({ sort, onSort, onAdd }: Props) {
+export function AppHeader({ sort, onSort, view, onView }: Props) {
   const [open, setOpen] = useState(false);
 
   function choose(key: SortKey) {
@@ -28,12 +29,15 @@ export function AppHeader({ sort, onSort, onAdd }: Props) {
         <div className="header-main">
           <h1 className="wordmark">TASKBASTER</h1>
           <button
-            className="add-button"
+            className="completed-button"
             type="button"
-            aria-label="タスク追加"
-            onClick={onAdd}
+            aria-label={
+              view === "active" ? "完了済みタスクを表示" : "未完了タスクに戻る"
+            }
+            aria-pressed={view === "completed"}
+            onClick={() => onView(view === "active" ? "completed" : "active")}
           >
-            <span className="add-cross" aria-hidden="true" />
+            {view === "active" ? "完了済へ" : "戻る"}
           </button>
         </div>
 

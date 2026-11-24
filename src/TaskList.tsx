@@ -1,60 +1,97 @@
 import type { Task } from "./types";
-import type { TaskFilter } from "./taskLogic";
+import type { TaskTab, TaskView } from "./taskLogic";
 import { TaskCard } from "./TaskCard";
 
 type Props = {
   tasks: Task[];
-  filter: TaskFilter;
-  onFilter: (filter: TaskFilter) => void;
+  view: TaskView;
+  tab: TaskTab;
+  onTab: (tab: TaskTab) => void;
   onUpdate: (id: number, changes: Partial<Task>) => void;
   onEdit: (task: Task) => void;
   onDelete: (id: number) => void;
-  onOpen3D: (task: Task) => void;
 };
 
 export function TaskList({
   tasks,
-  filter,
-  onFilter,
+  view,
+  tab,
+  onTab,
   onUpdate,
   onEdit,
   onDelete,
-  onOpen3D,
 }: Props) {
   return (
-    <section className="task-list" aria-label="タスク一覧">
+    <section
+      className="task-list"
+      aria-label={view === "active" ? "未完了タスク" : "完了済みタスク"}
+    >
       <div className="list-controls">
-        <label>
-          <span className="sr-only">表示</span>
-          <select
-            value={filter}
-            onChange={(e) => onFilter(e.target.value as TaskFilter)}
+        <div className="list-help">
+          <button
+            type="button"
+            aria-describedby="list-help-text"
+            aria-label="一覧の説明"
           >
-            <option value="active">未完了</option>
-            <option value="completed">完了済み</option>
-            <option value="starred">スター</option>
-            <option value="all">すべて</option>
-          </select>
-        </label>
+            ?
+          </button>
+          <span id="list-help-text" role="tooltip">
+            {view === "active" ? "未完了" : "完了済み"}
+            のタスクを表示中。スターで絞り込めます。
+          </span>
+        </div>
+        <div
+          className="list-tabs"
+          role="tablist"
+          aria-label="タスクの絞り込み"
+          data-tab={tab}
+        >
+          <button
+            id="starred-tab"
+            type="button"
+            role="tab"
+            aria-controls="task-panel"
+            aria-selected={tab === "starred"}
+            onClick={() => onTab("starred")}
+          >
+            スター
+          </button>
+          <button
+            id="all-tab"
+            type="button"
+            role="tab"
+            aria-controls="task-panel"
+            aria-selected={tab === "all"}
+            onClick={() => onTab("all")}
+          >
+            すべて
+          </button>
+        </div>
       </div>
 
-      {tasks.length === 0 && (
-        <p className="empty-state">タスクはありません。</p>
-      )}
-      {tasks.length > 0 && (
-        <ul>
-          {tasks.map((t) => (
-            <TaskCard
-              key={t.id}
-              task={t}
-              onUpdate={onUpdate}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onOpen3D={onOpen3D}
-            />
-          ))}
-        </ul>
-      )}
+      <div
+        id="task-panel"
+        role="tabpanel"
+        aria-labelledby={tab === "all" ? "all-tab" : "starred-tab"}
+        key={`${view}-${tab}`}
+      >
+        {tasks.length === 0 && (
+          <p className="empty-state">タスクはありません。</p>
+        )}
+        {tasks.length > 0 && (
+          <ul>
+            {tasks.map((t) => (
+              <TaskCard
+                key={t.id}
+                task={t}
+                onUpdate={onUpdate}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
