@@ -85,7 +85,7 @@ function App() {
           aria-label="完了済みタスクを3Dで開く"
           onClick={open3D}
         >
-          BASTER
+          斬る
         </button>
       ) : !sheet ? (
         <button
