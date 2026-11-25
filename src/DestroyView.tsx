@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Physics, useRapier } from "@react-three/rapier";
+import type { RapierContext, RapierRigidBody } from "@react-three/rapier";
 import {
+  BufferGeometry,
   BoxGeometry,
   DoubleSide,
   Mesh,
   MeshStandardMaterial,
   Plane,
   Raycaster,
+  Scene,
   Vector2,
   Vector3,
 } from "three";
@@ -21,8 +24,7 @@ type Wall = { position: Vec3; size: Vec3; color: string };
 type Reticle = { x: number; y: number; angle: number };
 type Piece = {
   mesh: Mesh;
-  velocity: Vector3;
-  spin: Vector3;
+  body: RapierRigidBody | null;
   age: number;
   fresh: boolean;
 };
@@ -34,6 +36,57 @@ const walls: Wall[] = [
   { position: [7, 2.2, 0], size: [0.3, 9, 14], color: "#1b1f27" },
 ];
 const MAX_PIECES = 72;
+
+function removePiece(
+  piece: Piece,
+  scene: Scene,
+  world: RapierContext["world"],
+) {
+  if (piece.body) world.removeRigidBody(piece.body);
+  scene.remove(piece.mesh);
+  piece.mesh.geometry.dispose();
+}
+
+function hullPoints(geometry: BufferGeometry): Float32Array {
+  const position = geometry.getAttribute("position");
+  const count = Math.min(position.count, geometry.drawRange.count);
+  const points = new Float32Array(count * 3);
+
+  for (let i = 0; i < count; i++) {
+    points[i * 3] = position.getX(i);
+    points[i * 3 + 1] = position.getY(i);
+    points[i * 3 + 2] = position.getZ(i);
+  }
+
+  return points;
+}
+
+function makeBody(
+  mesh: Mesh,
+  velocity: Vector3,
+  spin: Vector3,
+  world: RapierContext["world"],
+  rapier: RapierContext["rapier"],
+): RapierRigidBody {
+  const body = world.createRigidBody(
+    rapier.RigidBodyDesc.dynamic()
+      .setTranslation(mesh.position.x, mesh.position.y, mesh.position.z)
+      .setLinearDamping(0.5)
+      .setAngularDamping(0.9)
+      .setCcdEnabled(true),
+  );
+  const geometry = mesh.geometry;
+  geometry.computeBoundingBox();
+  const size = geometry.boundingBox!.getSize(new Vector3());
+  const collider =
+    rapier.ColliderDesc.convexHull(hullPoints(geometry)) ??
+    rapier.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2);
+  collider.setFriction(0.9).setRestitution(0.12);
+  world.createCollider(collider, body);
+  body.setLinvel(velocity, true);
+  body.setAngvel(spin, true);
+  return body;
+}
 
 function Room() {
   return walls.map(({ position, size, color }, index) => (
@@ -65,23 +118,28 @@ function SlashScene({
   tasks,
   reticle,
   slashRef,
+  nextRef,
+  slowRef,
   onCut,
+  onNext,
   onFlash,
 }: {
   tasks: Task[];
   reticle: React.RefObject<Reticle>;
   slashRef: React.RefObject<(() => void) | null>;
+  nextRef: React.RefObject<(() => void) | null>;
+  slowRef: React.RefObject<boolean>;
   onCut: () => void;
+  onNext: () => void;
   onFlash: () => void;
 }) {
   const { camera, scene } = useThree();
+  const { world, rapier, step } = useRapier();
   const pieces = useRef<Piece[]>([]);
-  const slowUntil = useRef(0);
 
   useFrame((_, delta) => {
-    const dt =
-      Math.min(delta, 0.05) *
-      (performance.now() < slowUntil.current ? 0.05 : 1);
+    const dt = Math.min(delta, 0.05) * (slowRef.current ? 0.05 : 1);
+    step(dt);
     const kept: Piece[] = [];
 
     for (const piece of pieces.current) {
@@ -91,29 +149,32 @@ function SlashScene({
       }
 
       piece.age += dt;
-      piece.velocity.y -= 5 * dt;
-      piece.mesh.position.addScaledVector(piece.velocity, dt);
-      piece.mesh.rotation.x += piece.spin.x * dt;
-      piece.mesh.rotation.y += piece.spin.y * dt;
-      piece.mesh.rotation.z += piece.spin.z * dt;
-
-      if (piece.mesh.position.y < -1.6) {
-        piece.mesh.position.y = -1.6;
-        piece.velocity.y *= -0.24;
-        piece.velocity.x *= 0.92;
+      if (piece.body) {
+        const position = piece.body.translation();
+        const rotation = piece.body.rotation();
+        piece.mesh.position.set(position.x, position.y, position.z);
+        piece.mesh.quaternion.set(
+          rotation.x,
+          rotation.y,
+          rotation.z,
+          rotation.w,
+        );
       }
 
       if (piece.age < 8) kept.push(piece);
-      else {
-        scene.remove(piece.mesh);
-        piece.mesh.geometry.dispose();
-      }
+      else removePiece(piece, scene, world);
     }
 
     pieces.current = kept;
   });
 
   useEffect(() => {
+    const floor = world.createCollider(
+      rapier.ColliderDesc.cuboid(7, 0.125, 7)
+        .setTranslation(0, -2.15, 0)
+        .setFriction(0.9)
+        .setRestitution(0.1),
+    );
     const textures = new Set<ReturnType<typeof taskTexture>>();
     const materials = new Set<MeshStandardMaterial>();
     const edge = new MeshStandardMaterial({ color: "#22252c", roughness: 0.7 });
@@ -127,6 +188,7 @@ function SlashScene({
     materials.add(edge);
     materials.add(cut);
     let next = 0;
+    let ready = false;
 
     function addTask() {
       const task = tasks[next++];
@@ -145,14 +207,20 @@ function SlashScene({
       scene.add(mesh);
       pieces.current.push({
         mesh,
-        velocity: new Vector3(),
-        spin: new Vector3(),
+        body: null,
         age: 0,
         fresh: true,
       });
     }
 
     addTask();
+
+    nextRef.current = () => {
+      if (!ready || next >= tasks.length) return;
+      ready = false;
+      addTask();
+      onNext();
+    };
 
     slashRef.current = () => {
       const [start, end] = lineEnds(reticle.current);
@@ -205,17 +273,18 @@ function SlashScene({
           fragment.receiveShadow = true;
           scene.add(fragment);
           const direction = index === 0 ? 1 : -1;
+          const velocity = normal
+            .clone()
+            .multiplyScalar(direction * 1.5)
+            .add(new Vector3(0, 0.5, 0));
+          const spin = new Vector3(
+            direction * 0.4,
+            direction * 0.7,
+            direction * 0.5,
+          );
           pieces.current.push({
             mesh: fragment,
-            velocity: normal
-              .clone()
-              .multiplyScalar(direction * 1.5)
-              .add(new Vector3(0, 0.5, 0)),
-            spin: new Vector3(
-              direction * 0.4,
-              direction * 0.7,
-              direction * 0.5,
-            ),
+            body: makeBody(fragment, velocity, spin, world, rapier),
             age: 0,
             fresh: false,
           });
@@ -223,38 +292,42 @@ function SlashScene({
       }
 
       if (!cutAny) return;
-      slowUntil.current = performance.now() + 350;
       onFlash();
 
       if (cutFresh) {
-        for (const piece of pieces.current) {
-          if (!piece.fresh) piece.mesh.position.z -= 0.9;
-        }
+        ready = true;
         onCut();
-        addTask();
       }
 
       if (pieces.current.length > MAX_PIECES) {
         const excess = pieces.current.length - MAX_PIECES;
         const removed = pieces.current.splice(0, excess);
-        for (const piece of removed) {
-          scene.remove(piece.mesh);
-          piece.mesh.geometry.dispose();
-        }
+        for (const piece of removed) removePiece(piece, scene, world);
       }
     };
 
     return () => {
       slashRef.current = null;
-      for (const piece of pieces.current) {
-        scene.remove(piece.mesh);
-        piece.mesh.geometry.dispose();
-      }
+      nextRef.current = null;
+      for (const piece of pieces.current) removePiece(piece, scene, world);
       pieces.current = [];
+      world.removeCollider(floor, true);
       for (const material of materials) material.dispose();
       for (const texture of textures) texture.dispose();
     };
-  }, [camera, scene, tasks, reticle, slashRef, onCut, onFlash]);
+  }, [
+    camera,
+    scene,
+    world,
+    rapier,
+    tasks,
+    reticle,
+    slashRef,
+    nextRef,
+    onCut,
+    onNext,
+    onFlash,
+  ]);
 
   return null;
 }
@@ -263,13 +336,19 @@ function Chamber({
   tasks,
   reticle,
   slashRef,
+  nextRef,
+  slowRef,
   onCut,
+  onNext,
   onFlash,
 }: {
   tasks: Task[];
   reticle: React.RefObject<Reticle>;
   slashRef: React.RefObject<(() => void) | null>;
+  nextRef: React.RefObject<(() => void) | null>;
+  slowRef: React.RefObject<boolean>;
   onCut: () => void;
+  onNext: () => void;
   onFlash: () => void;
 }) {
   return (
@@ -285,13 +364,25 @@ function Chamber({
       />
       <pointLight position={[4, 1, -2]} intensity={20} color="#7291ff" />
       <Room />
-      <SlashScene
-        tasks={tasks}
-        reticle={reticle}
-        slashRef={slashRef}
-        onCut={onCut}
-        onFlash={onFlash}
-      />
+      <Suspense fallback={null}>
+        <Physics
+          gravity={[0, -5, 0]}
+          timeStep={1 / 120}
+          paused
+          interpolate={false}
+        >
+          <SlashScene
+            tasks={tasks}
+            reticle={reticle}
+            slashRef={slashRef}
+            nextRef={nextRef}
+            slowRef={slowRef}
+            onCut={onCut}
+            onNext={onNext}
+            onFlash={onFlash}
+          />
+        </Physics>
+      </Suspense>
     </Canvas>
   );
 }
@@ -304,11 +395,15 @@ export function DestroyView({ tasks }: { tasks: Task[] }) {
   }));
   const [cutCount, setCutCount] = useState(0);
   const [flash, setFlash] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [slow, setSlow] = useState(false);
   const reticle = useRef(point);
   const slashRef = useRef<(() => void) | null>(null);
+  const nextRef = useRef<(() => void) | null>(null);
+  const slowRef = useRef(false);
   const flashTimer = useRef<number | null>(null);
 
-  function move(event: ReactPointerEvent<HTMLDivElement>) {
+  function move(event: { clientX: number; clientY: number }) {
     const next = { ...reticle.current, x: event.clientX, y: event.clientY };
     reticle.current = next;
     setPoint(next);
@@ -320,7 +415,11 @@ export function DestroyView({ tasks }: { tasks: Task[] }) {
     setPoint(next);
   }
 
-  const onCut = useCallback(() => setCutCount((count) => count + 1), []);
+  const onCut = useCallback(() => {
+    setCutCount((count) => count + 1);
+    setPending(true);
+  }, []);
+  const onNext = useCallback(() => setPending(false), []);
   const onFlash = useCallback(() => {
     if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
     setFlash(true);
@@ -335,13 +434,29 @@ export function DestroyView({ tasks }: { tasks: Task[] }) {
     const key = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() === "q") rotate(-Math.PI / 18);
       if (event.key.toLowerCase() === "e") rotate(Math.PI / 18);
+      if (event.key.toLowerCase() === "r") nextRef.current?.();
+    };
+    const release = (event: MouseEvent) => {
+      if (event.button !== 2) return;
+      slowRef.current = false;
+      setSlow(false);
+    };
+    const blur = () => {
+      slowRef.current = false;
+      setSlow(false);
     };
 
     window.addEventListener("wheel", wheel, { passive: false });
     window.addEventListener("keydown", key);
+    window.addEventListener("mouseup", release);
+    window.addEventListener("pointercancel", blur);
+    window.addEventListener("blur", blur);
     return () => {
       window.removeEventListener("wheel", wheel);
       window.removeEventListener("keydown", key);
+      window.removeEventListener("mouseup", release);
+      window.removeEventListener("pointercancel", blur);
+      window.removeEventListener("blur", blur);
       if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
     };
   }, []);
@@ -352,7 +467,15 @@ export function DestroyView({ tasks }: { tasks: Task[] }) {
     <div
       className="destroy-view"
       onPointerMove={move}
+      onContextMenu={(event) => event.preventDefault()}
       onPointerDown={(event) => {
+        if ((event.target as Element).closest(".destroy-header")) return;
+        if (event.button !== 2) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        slowRef.current = true;
+        setSlow(true);
+      }}
+      onMouseDown={(event) => {
         if (event.button !== 0) return;
         if ((event.target as Element).closest(".destroy-header")) return;
         move(event);
@@ -371,7 +494,10 @@ export function DestroyView({ tasks }: { tasks: Task[] }) {
           tasks={tasks}
           reticle={reticle}
           slashRef={slashRef}
+          nextRef={nextRef}
+          slowRef={slowRef}
           onCut={onCut}
+          onNext={onNext}
           onFlash={onFlash}
         />
       ) : (
@@ -379,7 +505,7 @@ export function DestroyView({ tasks }: { tasks: Task[] }) {
       )}
 
       <svg
-        className={`slash-reticle${flash ? "is-flashing" : ""}`}
+        className={flash ? "slash-reticle is-flashing" : "slash-reticle"}
         aria-hidden="true"
       >
         <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
@@ -387,7 +513,11 @@ export function DestroyView({ tasks }: { tasks: Task[] }) {
       <p className="destroy-hint">
         {cutCount === tasks.length && tasks.length > 0
           ? "すべて斬りました"
-          : "ホイール / Q・E で回転　クリックで斬る"}
+          : pending
+            ? "R で次のタスク"
+            : slow
+              ? "SLOW"
+              : "Q・E / ホイールで回転　左クリックで斬る　右クリック長押しでスロー"}
       </p>
     </div>
   );
